@@ -993,7 +993,7 @@ async function loadBuoys(){
   const maxFt = S.buoys.reduce((a,b)=> b.ft!=null? Math.max(a==null?-1:a, b.ft) : a, null);
   paintGauge('waveGauge', {
     value:maxFt, min:0, max:15, storm:THR.wave, fair:THR.wave*0.75, invert:false,
-    dp:1, unit:'ft', sub:'How big the waves are right now', noData:'Wave data unavailable'
+    dp:1, unit:'ft', sub:'How big the waves are right now in the outer waters - not along the coast', noData:'Wave data unavailable'
   });
   out.push('<div class="small muted">Long-period swell (16 s+) with a west/southwest direction drives the biggest run-up at the pier and Esplanade. <a href="https://cdip.ucsd.edu/mops/" target="_blank" rel="noopener">CDIP nearshore forecast</a></div>');
   $('buoys').innerHTML = out.join('');
