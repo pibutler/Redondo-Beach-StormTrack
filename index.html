@@ -1054,9 +1054,22 @@ async function loadBuoys(){
       const wv = get(row,'WVHT'); const ft = wv==null?null:wv*3.28084;
       const dpd = get(row,'DPD'), mwd = get(row,'MWD'), wt = get(row,'WTMP');
       const wspd = get(row,'WSPD'), gst = get(row,'GST');
+      // Water temperature: newest WTMP reading, and the reading closest to 7 days before it
+      const rowTime = r => Date.UTC(get(r,'YY')||get(r,'#YY'), get(r,'MM')-1, get(r,'DD'), get(r,'hh'), get(r,'mm'));
+      const wRows = rows.filter(r=>get(r,'WTMP')!=null);
+      let wtNow=null, wtWhen=null, wtChg7=null;
+      if(wRows.length){
+        wtWhen = rowTime(wRows[0]);
+        if(Date.now()-wtWhen < 6*3600e3){
+          wtNow = c2f(get(wRows[0],'WTMP'));
+          const target = wtWhen - 7*86400e3;
+          let best=null, bd=Infinity; wRows.forEach(r=>{ const d=Math.abs(rowTime(r)-target); if(d<bd){bd=d;best=r;} });
+          if(best && bd < 12*3600e3) wtChg7 = wtNow - c2f(get(best,'WTMP'));
+        }
+      }
       // 24h max
       let max24 = null; rows.slice(0,50).forEach(r=>{ const w=get(r,'WVHT'); if(w!=null) max24=Math.max(max24||0,w*3.28084); });
-      S.buoys.push({id:b.id, name:b.name, where:b.where, ft, dpd, mwd, when, wspd: wspd==null?null:wspd*2.23694, gst: gst==null?null:gst*2.23694});
+      S.buoys.push({id:b.id, name:b.name, where:b.where, ft, dpd, mwd, when, wtNow, wtChg7, wspd: wspd==null?null:wspd*2.23694, gst: gst==null?null:gst*2.23694});
       out.push(`<div style="margin-bottom:8px"><div class="small"><b>${b.id}</b> ${esc(b.name)} <span class="muted">· ${fmtT(when)}</span></div><div class="stats">
         ${stat('Wave height', ft==null?'—':n(ft,1)+' ft', lvl(ft, THR.wave))}
         ${stat('Dominant period', dpd==null?'—':n(dpd,0)+' s', dpd!=null && dpd>=16 ? 'warn':'')}
@@ -1074,6 +1087,13 @@ async function loadBuoys(){
     const longP = prim.dpd >= THR.swellper;
     const txt = `Period ${n(prim.dpd,0)} s${prim.mwd!=null && prim.mwd!=='' ? ' · from '+card16(+prim.mwd) : ''}${longP ? ' — long swell, big run-up at the pier' : ''}`;
     waveLines.push(longP ? `<b>${txt}</b>` : txt);
+  }
+  const wb = (prim && prim.wtNow!=null) ? prim : (S.buoys||[]).find(x=>x.wtNow!=null);
+  if(wb){
+    let chg = '';
+    if(wb.wtChg7!=null){ const d=Math.round(wb.wtChg7); chg = d===0 ? ' · about the same as a week ago' : ` · ${d>0?'up':'down'} ${Math.abs(d)}° in 7 days`; }
+    const where = (prim && wb.id!==prim.id) ? ' (San Pedro buoy)' : '';
+    waveLines.push(`Ocean ${n(wb.wtNow,0)}°F${where}${chg}`);
   }
   const waveSub = !prim ? '' : prim.id==='46221'
     ? `Wave height in the Santa Monica Bay, ${prim.where}. Open water, not beach surf.`
@@ -1515,7 +1535,7 @@ heroCard: {t:'Today at a glance', h:`
 <li><b>What Prepare and Act now mean for your teams has not been set yet.</b> The gauge shows the zone only; the meanings can be added to the code once they are decided.</li>
 <li><b>El Niño chip:</b> season context from NOAA's monthly ENSO update. It is typed in by hand (not live) and is <b>not</b> part of the score. It tells you the winter is more likely to bring repeated storms, higher sea level and big swells.</li>
 <li><b>Limits:</b> the score is decision support built on forecasts, which are less certain at 72 hours. A Routine reading never overrides an NWS alert or your own judgment. Anything listed as "Not counted" had no data, so the score is missing that input.</li>
-<li><b>Offshore Waves:</b> the wave height at the Santa Monica Bay buoy (46221), about 14 miles west of Redondo, in open water. It is not the surf at the beach. The San Pedro buoy (46222, 16 miles south-southeast) is used only if the bay buoy stops reporting.</li>
+<li><b>Offshore Waves:</b> the wave height at the Santa Monica Bay buoy (46221), about 14 miles west of Redondo, in open water. It is not the surf at the beach. The San Pedro buoy (46222, 16 miles south-southeast) is used only if the bay buoy stops reporting. The <b>Ocean</b> line is the surface water temperature at the same buoy and how much it has changed over the past week. It is context, not part of any score: warmer-than-usual water is part of why tides run high in an El Niño winter, it helps tropical remnants hold together farther north, and it affects how long a person can safely stay in the water.</li>
 <li><b>Breakwater:</b> a rough rule of thumb for whether waves go over the King Harbor breakwater, not engineering. It compares the buoy wave height with the water level (the highest of now and the next 12 hours of high tides, including surge): the higher the water, the smaller the waves needed. Short-period waves need to be bigger. It was set from one confirmed night, December 22 to 23, 2024, and should be adjusted as you see more events.</li>
 <li><b>Chips:</b> click one to open that card. The other dials: Weather is sea-level pressure with its 3-hour trend; Wind falls back from KTOA to the buoys to Hawthorne; Rain is the 24-hour forecast with the 72-hour total; Tide and Waves are described in their own cards.</li>
 </ul>`},
