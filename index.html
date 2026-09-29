@@ -409,6 +409,8 @@ const CFG = {
   lat: 33.849, lon: -118.388,
   obsStation: 'KTOA',
   backupStation: {id:'KHHR', name:'Hawthorne Muni'},
+  // Coast check: NOAA shoreline weather sensors either side of Redondo (via the same NDBC proxy). Shown on the Wind dial only; not scored.
+  coast: [{id:'ICAC1', name:'Santa Monica Pier'}, {id:'PXAC1', name:'Port of LA'}],
   // Season context only (not part of the readiness math). Update after each monthly NOAA CPC ENSO update.
   enso: {label:'El Niño · very strong expected (CPC, Sep 2026)', url:'https://www.cpc.ncep.noaa.gov/products/analysis_monitoring/enso_advisory/ensodisc.shtml'},
   marineZone: 'PZZ655',
@@ -832,18 +834,49 @@ function paintRainGauge(){
     dp:2, unit:'in', title:'Rain', sub:'Forecast rain, next 24 h', noData:'Rain forecast unavailable'
   });
 }
+// One line for the Wind dial: where the wind is coming from, with a small arrow pointing downwind.
+// South winds (SE through SSW, 110–210°) at 12 mph or more are the usual sign of an approaching storm here.
+function windDirLine(deg, mph){
+  if(mph!=null && mph < 1) return 'Calm';
+  if(deg==null || isNaN(deg)) return 'Direction variable or not reported';
+  const arrow = `<span aria-hidden="true" style="display:inline-block;transform:rotate(${Math.round(deg)}deg)">↓</span>`;
+  const txt = `From the ${card16(deg)} (${Math.round(deg)}°)`;
+  return (southerly(deg) && mph!=null && mph >= 12)
+    ? `${arrow} <b>${txt} — south wind, storm pattern</b>`
+    : `${arrow} ${txt}`;
+}
+async function loadCoast(){
+  S.coast = [];
+  await Promise.all((CFG.coast||[]).map(async c=>{
+    try{
+      const r = await fetch(CFG.BUOY_PROXY + c.id); if(!r.ok) return;
+      const row = parseNDBC(await r.text()).find(x=>x.WSPD!=null);
+      if(!row || Date.now()-row.t > 2*3600e3) return;   // skip anything older than 2 hours
+      S.coast.push({id:c.id, name:c.name, t:row.t, dir:row.WDIR, mph:row.WSPD*2.23694, gust: row.GST==null? null : row.GST*2.23694});
+    }catch(e){}
+  }));
+  S.coast.sort((a,b)=> CFG.coast.findIndex(x=>x.id===a.id) - CFG.coast.findIndex(x=>x.id===b.id));
+}
+function coastLines(){
+  if(!S.coast || !S.coast.length) return [];
+  const parts = S.coast.map(c=>{
+    const spd = c.mph < 1 ? 'calm' : `${c.dir!=null? card16(c.dir)+' ' : ''}${n(c.mph,0)} mph${c.gust!=null && c.gust>=c.mph+3 ? ', gust '+n(c.gust,0) : ''}`;
+    return `${c.name} ${spd}`;
+  });
+  return [`<span class="muted">Coast check:</span> ${parts.join(' · ')}`];
+}
 async function resolveWindGauge(){
   const base = {min:0, max:60, storm:THR.gust, fair:THR.gust*0.75, invert:false, dp:0, unit:'mph', title:'Wind'};
   if(S.obs && (S.obs.wg!=null || S.obs.ws!=null)){
     const val = S.obs.wg!=null ? S.obs.wg : S.obs.ws;
-    paintGauge('windGauge', Object.assign({}, base, {value:val,
+    paintGauge('windGauge', Object.assign({}, base, {value:val, lines:[windDirLine(S.obs.dirDeg, S.obs.ws), ...coastLines()],
       sub: S.obs.wg!=null ? 'Gusts right now at KTOA' : 'Steady wind at KTOA (no gust reported)'}));
     return;
   }
   const buoyWind = (S.buoys||[]).filter(b=>b.wspd!=null || b.gst!=null).sort((a,b)=>b.when-a.when)[0];
   if(buoyWind){
     const val = buoyWind.gst!=null ? buoyWind.gst : buoyWind.wspd;
-    paintGauge('windGauge', Object.assign({}, base, {value:val,
+    paintGauge('windGauge', Object.assign({}, base, {value:val, lines:[windDirLine(buoyWind.wdir, buoyWind.wspd), ...coastLines()],
       sub: `KTOA wind missing — using buoy ${buoyWind.id}`}));
     return;
   }
@@ -853,7 +886,7 @@ async function resolveWindGauge(){
     const ws2 = toMph(p.windSpeed), wg2 = toMph(p.windGust);
     if(ws2!=null || wg2!=null){
       const val = wg2!=null ? wg2 : ws2;
-      paintGauge('windGauge', Object.assign({}, base, {value:val,
+      paintGauge('windGauge', Object.assign({}, base, {value:val, lines:[windDirLine(qv(p.windDirection), ws2), ...coastLines()],
         sub: `KTOA &amp; buoys missing — using ${CFG.backupStation.name}`}));
       return;
     }
@@ -1069,7 +1102,7 @@ async function loadBuoys(){
       }
       // 24h max
       let max24 = null; rows.slice(0,50).forEach(r=>{ const w=get(r,'WVHT'); if(w!=null) max24=Math.max(max24||0,w*3.28084); });
-      S.buoys.push({id:b.id, name:b.name, where:b.where, ft, dpd, mwd, when, wtNow, wtChg7, wspd: wspd==null?null:wspd*2.23694, gst: gst==null?null:gst*2.23694});
+      S.buoys.push({id:b.id, name:b.name, where:b.where, ft, dpd, mwd, when, wtNow, wtChg7, wdir: get(row,'WDIR'), wspd: wspd==null?null:wspd*2.23694, gst: gst==null?null:gst*2.23694});
       out.push(`<div style="margin-bottom:8px"><div class="small"><b>${b.id}</b> ${esc(b.name)} <span class="muted">· ${fmtT(when)}</span></div><div class="stats">
         ${stat('Wave height', ft==null?'—':n(ft,1)+' ft', lvl(ft, THR.wave))}
         ${stat('Dominant period', dpd==null?'—':n(dpd,0)+' s', dpd!=null && dpd>=16 ? 'warn':'')}
@@ -1537,7 +1570,7 @@ heroCard: {t:'Today at a glance', h:`
 <li><b>Limits:</b> the score is decision support built on forecasts, which are less certain at 72 hours. A Routine reading never overrides an NWS alert or your own judgment. Anything listed as "Not counted" had no data, so the score is missing that input.</li>
 <li><b>Offshore Waves:</b> the wave height at the Santa Monica Bay buoy (46221), about 14 miles west of Redondo, in open water. It is not the surf at the beach. The San Pedro buoy (46222, 16 miles south-southeast) is used only if the bay buoy stops reporting. The <b>Ocean</b> line is the surface water temperature at the same buoy and how much it has changed over the past week. It is context, not part of any score: warmer-than-usual water is part of why tides run high in an El Niño winter, it helps tropical remnants hold together farther north, and it affects how long a person can safely stay in the water.</li>
 <li><b>Breakwater:</b> a rough rule of thumb for whether waves go over the King Harbor breakwater, not engineering. It compares the buoy wave height with the water level (the highest of now and the next 12 hours of high tides, including surge): the higher the water, the smaller the waves needed. Short-period waves need to be bigger. It was set from one confirmed night, December 22 to 23, 2024, and should be adjusted as you see more events.</li>
-<li><b>Chips:</b> click one to open that card. The other dials: Weather is sea-level pressure with its 3-hour trend; Wind falls back from KTOA to the buoys to Hawthorne; Rain is the 24-hour forecast with the 72-hour total; Tide and Waves are described in their own cards.</li>
+<li><b>Chips:</b> click one to open that card. The other dials: Weather is sea-level pressure with its 3-hour trend; Wind falls back from KTOA to the buoys to Hawthorne, and shows the direction the wind is coming from (a south wind of 12 mph or more is flagged as a storm pattern). The <b>Coast check</b> line shows NOAA's shoreline wind sensors at the Santa Monica Pier (about 12 miles northwest) and the Port of Los Angeles (about 9 miles southeast), which often read stronger than the airport during a storm. It is for comparison only and does not change the dial or the score; Rain is the 24-hour forecast with the 72-hour total; Tide and Waves are described in their own cards.</li>
 </ul>`},
 mapCard: {t:'Map: radar, storm drains, hazard zones', h:`
 <p><b>What it is:</b> a live map of Redondo Beach with rain radar and the city's own GIS layers.</p>
@@ -1706,7 +1739,7 @@ function buildManual(){
   <li><b>Notes, pump checks and thresholds</b> are saved per browser/computer. They don't sync between people or devices.</li></ul>
 
   <h2>7. Data sources</h2>
-  <p>National Weather Service (alerts, forecasts, Torrance Airport observations, forecast discussion) · NOAA tides (San Pedro 9410660, King Harbor 9410738) · NOAA/Scripps buoys (46222, 46221, 46025, 46219, 46086) · National Hurricane Center · USGS earthquakes · NOAA GOES-West satellite · NOAA WPC rainfall forecasts · California Geological Survey (tsunami, landslide, liquefaction zones) · FEMA flood zones · City of Redondo Beach GIS (storm drains, pumps, streets, boundary) · RainViewer radar · Windy · City of Redondo Beach, King Harbor Yacht Club, City of San Clemente and America's Boating Club Oceanside cameras.</p>
+  <p>National Weather Service (alerts, forecasts, Torrance Airport observations, forecast discussion) · NOAA tides (San Pedro 9410660, King Harbor 9410738) · NOAA/Scripps buoys (46222, 46221, 46025, 46219, 46086) · NOAA shoreline wind sensors (Santa Monica Pier ICAC1, Port of Los Angeles PXAC1) · National Hurricane Center · USGS earthquakes · NOAA GOES-West satellite · NOAA WPC rainfall forecasts · California Geological Survey (tsunami, landslide, liquefaction zones) · FEMA flood zones · City of Redondo Beach GIS (storm drains, pumps, streets, boundary) · RainViewer radar · Windy · City of Redondo Beach, King Harbor Yacht Club, City of San Clemente and America's Boating Club Oceanside cameras.</p>
   </div>`;
   document.body.appendChild(m);
   const fd = document.querySelector('#siteFooter .disc');
@@ -1939,7 +1972,7 @@ async function refreshAll(){
   $('refreshBtn').disabled = true;
   await Promise.allSettled([loadAlerts(), loadObs(), loadRainHistory().then(()=>{}), loadFloodLevels()]);
   paintPressureGauge();
-  await Promise.allSettled([loadForecast(), loadTides(), loadBuoys(), loadQuakes(), loadTsunamiFeed(), loadUpstream(), loadOneMinute(), loadRadar()]);
+  await Promise.allSettled([loadForecast(), loadTides(), loadBuoys(), loadQuakes(), loadTsunamiFeed(), loadUpstream(), loadOneMinute(), loadRadar(), loadCoast()]);
   await resolveWindGauge();
   paintRainGauge();
   paintBreakwaterGauge();
