@@ -397,7 +397,7 @@ footer{padding:22px 16px 28px;margin-top:18px;border-top:1px solid var(--line);c
 <footer id="siteFooter">
   <div class="disc">
     <p class="disc-lead"><b>For situational awareness only.</b> This dashboard does not issue warnings or orders. Official watches, warnings, evacuation orders and emergency instructions come from the National Weather Service, Los Angeles County and the City of Redondo Beach. Confirm with them before acting. In an emergency, call 911.</p>
-    <p>Readings come from publicly accessible sources and can be delayed, missing or wrong. The gauges, thresholds, Breakwater dial and 72-Hour Readiness level are rough rules of thumb for planning, not official forecasts or engineering assessments. Provided as is, without warranty of any kind.</p>
+    <p>Readings come from publicly accessible sources and can be delayed, missing or wrong. The gauges, thresholds, Breakwater dial and 72-Hour Readiness level are rough rules of thumb for planning, not official forecasts or engineering assessments. Provided as is, without warranty of any kind. Visits are counted anonymously with GoatCounter; no cookies or personal data are collected.</p>
     <p class="disc-src">Data: NWS, NOAA CO-OPS, NDBC/CDIP, USGS, NTWC, California Geological Survey, FEMA, City of Redondo Beach GIS, RainViewer, Windy.</p>
     <p class="disc-credit">Redondo Beach Storm Track. Developed by Patrick Butler, &copy; <span class="disc-year">2026</span>.</p>
   </div>
@@ -1995,5 +1995,8 @@ loadSat(); setInterval(loadSat, 15*60*1000);
 setInterval(loadAFD, 60*60*1000);
 window.addEventListener('resize', ()=>{ if(S._P) drawTide(S._O, S._P); });
 </script>
+<!-- GoatCounter: anonymous visit counts, no cookies or personal data. Stats at https://redondostorm.goatcounter.com -->
+<script data-goatcounter="https://redondostorm.goatcounter.com/count"
+        async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>
